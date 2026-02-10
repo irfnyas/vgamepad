@@ -5,66 +5,31 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-// --- HIGH-PERFORMANCE UDP SERVICE SINGLETON ---
-class UdpService {
-  static final UdpService _instance = UdpService._internal();
-  factory UdpService() => _instance;
-  UdpService._internal();
-
-  RawDatagramSocket? _socket;
-  String _serverIp = "127.0.0.1";
-  final int port = 5005;
-
-  final StreamController<Datagram> _dataStreamController =
-      StreamController<Datagram>.broadcast();
-  Stream<Datagram> get dataStream => _dataStreamController.stream;
-
-  Future<void> init() async {
-    if (_socket != null) return;
-    _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
-    _socket!.broadcastEnabled = true;
-    _socket!.listen((event) {
-      if (event == RawSocketEvent.read) {
-        Datagram? dg = _socket!.receive();
-        if (dg != null) _dataStreamController.add(dg);
-      }
-    });
-  }
-
-  void setServerIp(String ip) => _serverIp = ip;
-  void send(String message) =>
-      _socket?.send(utf8.encode(message), InternetAddress(_serverIp), port);
-  void sendBroadcast(String message) => _socket?.send(
-    utf8.encode(message),
-    InternetAddress("255.255.255.255"),
-    port,
-  );
-
-  void dispose() {
-    _socket?.close();
-    _socket = null;
-    _dataStreamController.close();
-  }
-}
-
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setPreferredOrientations([DeviceOrientation.landscapeLeft]);
-  runApp(
-    const MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: UnifiedVmcScreen(),
-    ),
-  );
+  runApp(const MyApp());
 }
 
-class UnifiedVmcScreen extends StatefulWidget {
-  const UnifiedVmcScreen({super.key});
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
   @override
-  State<UnifiedVmcScreen> createState() => _UnifiedVmcScreenState();
+  Widget build(BuildContext context) {
+    return const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: HomePage(),
+    );
+  }
 }
 
-class _UnifiedVmcScreenState extends State<UnifiedVmcScreen> {
+class HomePage extends StatefulWidget {
+  const HomePage({super.key});
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
   final UdpService _udp = UdpService();
   StreamSubscription? _subscription;
   Timer? _discoveryTimer, _pingTimer, _healthCheckTimer;
@@ -79,10 +44,27 @@ class _UnifiedVmcScreenState extends State<UnifiedVmcScreen> {
   DateTime _lastPingResponse = DateTime.now();
   final TextEditingController _ipController = TextEditingController();
 
+  // Layout Engine
+  List<dynamic> _layout = [];
+
   @override
   void initState() {
     super.initState();
+    _loadLayout();
     _initUdp();
+  }
+
+  Future<void> _loadLayout() async {
+    try {
+      final String response = await rootBundle.loadString(
+        'assets/layout/keyboard.json',
+      );
+      setState(() {
+        _layout = jsonDecode(response);
+      });
+    } catch (e) {
+      debugPrint("Error loading layout: $e");
+    }
   }
 
   Future<void> _initUdp() async {
@@ -92,7 +74,7 @@ class _UnifiedVmcScreenState extends State<UnifiedVmcScreen> {
       if (msg == "DISCOVER_VMC_RESPONSE" && !_isConnected) {
         _handleConnection(dg.address.address);
       } else if (msg == "pong" && mounted) {
-        _lastPingResponse = DateTime.now(); // Perbarui detak jantung
+        _lastPingResponse = DateTime.now();
         setState(() {
           _latency = _pingStopwatch.elapsedMilliseconds;
           _pingStopwatch.stop();
@@ -137,10 +119,7 @@ class _UnifiedVmcScreenState extends State<UnifiedVmcScreen> {
     _healthCheckTimer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (_isConnected) {
         final diff = DateTime.now().difference(_lastPingResponse).inSeconds;
-        if (diff > 3) {
-          // Jika 3 detik tanpa pong, anggap mati
-          _disconnect();
-        }
+        if (diff > 3) _disconnect();
       }
     });
   }
@@ -182,10 +161,10 @@ class _UnifiedVmcScreenState extends State<UnifiedVmcScreen> {
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.cyanAccent.withOpacity(0.1),
+              color: Colors.cyanAccent.withValues(alpha: 0.1),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.cyanAccent.withOpacity(0.2),
+                  color: Colors.cyanAccent.withValues(alpha: 0.2),
                   blurRadius: 30,
                   spreadRadius: 2,
                 ),
@@ -258,7 +237,7 @@ class _UnifiedVmcScreenState extends State<UnifiedVmcScreen> {
               ),
               style: OutlinedButton.styleFrom(
                 foregroundColor: color,
-                side: BorderSide(color: color.withOpacity(0.5)),
+                side: BorderSide(color: color.withValues(alpha: 0.5)),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -358,7 +337,7 @@ class _UnifiedVmcScreenState extends State<UnifiedVmcScreen> {
                 hintText: "192.168.1.100",
                 hintStyle: const TextStyle(color: Colors.white24),
                 filled: true,
-                fillColor: Colors.white.withOpacity(0.05),
+                fillColor: Colors.white.withValues(alpha: 0.05),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide: BorderSide.none,
@@ -410,7 +389,9 @@ class _UnifiedVmcScreenState extends State<UnifiedVmcScreen> {
       leading: IconButton(
         icon: Icon(
           Icons.link_off,
-          color: _isLocked ? Colors.white10 : Colors.redAccent.withOpacity(0.7),
+          color: _isLocked
+              ? Colors.white10
+              : Colors.redAccent.withValues(alpha: 0.7),
           size: 22,
         ),
         onPressed: _isLocked ? null : _disconnect,
@@ -422,7 +403,7 @@ class _UnifiedVmcScreenState extends State<UnifiedVmcScreen> {
           Text(
             "IP: $_currentIp",
             style: const TextStyle(
-              color: Colors.white24,
+              color: Colors.white38,
               fontSize: 8,
               fontFamily: 'monospace',
             ),
@@ -445,8 +426,7 @@ class _UnifiedVmcScreenState extends State<UnifiedVmcScreen> {
             color: _isLocked ? Colors.cyanAccent : Colors.white24,
             size: 20,
           ),
-          onPressed: () => setState(() => _isLocked = true),
-          onLongPress: () => setState(() => _isLocked = !_isLocked),
+          onPressed: () => setState(() => _isLocked = !_isLocked),
         ),
         const SizedBox(width: 8),
       ],
@@ -454,185 +434,74 @@ class _UnifiedVmcScreenState extends State<UnifiedVmcScreen> {
   }
 
   Widget _buildGamepad() {
-    return Padding(
+    if (_layout.isEmpty) {
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.cyanAccent),
+      );
+    }
+
+    return LayoutBuilder(
       key: const ValueKey("gamepad"),
-      padding: const EdgeInsets.symmetric(horizontal: 4.0),
-      child: Column(
-        children: [
-          Expanded(
-            child: Column(
-              children: [
-                _buildKeyRow(
-                  [
-                    "esc",
-                    "f1",
-                    "f2",
-                    "f3",
-                    "f4",
-                    "f5",
-                    "f6",
-                    "f7",
-                    "f8",
-                    "f9",
-                    "f10",
-                    "f11",
-                    "f12",
-                  ],
-                  flexes: [1.5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                ),
-                _buildKeyRow(
-                  [
-                    "`",
-                    "1",
-                    "2",
-                    "3",
-                    "4",
-                    "5",
-                    "6",
-                    "7",
-                    "8",
-                    "9",
-                    "0",
-                    "-",
-                    "=",
-                    "backspace",
-                  ],
-                  flexes: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2.2],
-                ),
-                _buildKeyRow(
-                  [
-                    "tab",
-                    "q",
-                    "w",
-                    "e",
-                    "r",
-                    "t",
-                    "y",
-                    "u",
-                    "i",
-                    "o",
-                    "p",
-                    "[",
-                    "]",
-                    "\\",
-                  ],
-                  flexes: [1.6, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                ),
-                _buildKeyRow(
-                  [
-                    "caps",
-                    "a",
-                    "s",
-                    "d",
-                    "f",
-                    "g",
-                    "h",
-                    "j",
-                    "k",
-                    "l",
-                    ";",
-                    "'",
-                    "enter",
-                  ],
-                  flexes: [2.0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2.0],
-                ),
-                _buildKeyRow(
-                  [
-                    "shift",
-                    "z",
-                    "x",
-                    "c",
-                    "v",
-                    "b",
-                    "n",
-                    "m",
-                    ",",
-                    ".",
-                    "/",
-                    "shift",
-                  ],
-                  flexes: [2.6, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2.6],
-                ),
-                _buildKeyRow(
-                  [
-                    "fn",
-                    "ctrl",
-                    "alt",
-                    "cmd",
-                    "space",
-                    "cmd",
-                    "alt",
-                    "left",
-                    "up",
-                    "down",
-                    "right",
-                  ],
-                  flexes: [1, 1, 1, 1.2, 5.5, 1.2, 1, 1, 0.8, 0.8, 1],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+      builder: (context, constraints) {
+        final double unitW = constraints.maxWidth / 200;
+        final double unitH = constraints.maxHeight / 100;
 
-  Widget _buildKeyRow(List<String> keys, {required List<double> flexes}) {
-    return Expanded(
-      child: Row(
-        children: List.generate(keys.length, (i) {
-          if (keys[i] == "up") {
-            return Expanded(
-              flex: (flexes[i] * 100).toInt(),
-              child: Column(
-                children: [
-                  _buildKey("up", isStacked: true),
-                  _buildKey("down", isStacked: true),
-                ],
-              ),
+        return Stack(
+          children: _layout.map((k) {
+            final double x = k["x1"].toDouble() * unitW;
+            final double y = k["y1"].toDouble() * unitH;
+            final double w = (k["x2"] - k["x1"]).toDouble() * unitW;
+            final double h = (k["y2"] - k["y1"]).toDouble() * unitH;
+
+            return Positioned(
+              left: x,
+              top: y,
+              width: w,
+              height: h,
+              child: _buildKey(k["action"], k["label"]),
             );
-          }
-          if (keys[i] == "down") return const SizedBox.shrink();
-          return _buildKey(keys[i], flex: flexes[i]);
-        }),
-      ),
+          }).toList(),
+        );
+      },
     );
   }
 
-  Widget _buildKey(
-    String keyName, {
-    double flex = 1.0,
-    bool isStacked = false,
-  }) {
-    return Expanded(
-      flex: isStacked ? 1 : (flex * 100).toInt(),
-      child: Padding(
-        padding: const EdgeInsets.all(1.0),
-        child: Material(
-          color: Colors.transparent,
+  Widget _buildKey(String action, String label) {
+    return Padding(
+      padding: const EdgeInsets.all(1.0),
+      child: Material(
+        color: Colors.transparent,
+        child: Ink(
+          decoration: BoxDecoration(
+            color: _getButtonColor(action),
+            borderRadius: BorderRadius.circular(3),
+            border: Border.all(color: Colors.white10, width: 0.5),
+          ),
           child: InkWell(
             borderRadius: BorderRadius.circular(3),
             onTapDown: (_) {
               HapticFeedback.vibrate();
-              _udp.send("${keyName.toLowerCase()}:1.0");
+              _udp.send("${action.toLowerCase()}:1.0");
             },
-            onTapUp: (_) => _udp.send("${keyName.toLowerCase()}:0.0"),
-            onTapCancel: () => _udp.send("${keyName.toLowerCase()}:0.0"),
-            splashColor: Colors.white24,
+            onTapUp: (_) {
+              _udp.send("${action.toLowerCase()}:0.0");
+            },
+            onTapCancel: () {
+              _udp.send("${action.toLowerCase()}:0.0");
+            },
             child: Container(
-              decoration: BoxDecoration(
-                color: _getButtonColor(keyName),
-                borderRadius: BorderRadius.circular(3),
-                border: Border.all(color: Colors.white10, width: 0.5),
-              ),
-              child: Center(
-                child: Text(
-                  keyName.toUpperCase(),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: keyName.length > 3 ? 5 : 7,
-                    fontWeight: FontWeight.w400,
+              alignment: Alignment.center,
+              child: Padding(
+                padding: const EdgeInsets.all(2.0),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    label.toUpperCase(),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ),
@@ -670,5 +539,47 @@ class _UnifiedVmcScreenState extends State<UnifiedVmcScreen> {
     _ipController.dispose();
     _udp.dispose();
     super.dispose();
+  }
+}
+
+// --- HIGH-PERFORMANCE UDP SERVICE SINGLETON ---
+class UdpService {
+  static final UdpService _instance = UdpService._internal();
+  factory UdpService() => _instance;
+  UdpService._internal();
+
+  RawDatagramSocket? _socket;
+  String _serverIp = "127.0.0.1";
+  final int port = 5005;
+
+  final StreamController<Datagram> _dataStreamController =
+      StreamController<Datagram>.broadcast();
+  Stream<Datagram> get dataStream => _dataStreamController.stream;
+
+  Future<void> init() async {
+    if (_socket != null) return;
+    _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+    _socket!.broadcastEnabled = true;
+    _socket!.listen((event) {
+      if (event == RawSocketEvent.read) {
+        Datagram? dg = _socket!.receive();
+        if (dg != null) _dataStreamController.add(dg);
+      }
+    });
+  }
+
+  void setServerIp(String ip) => _serverIp = ip;
+  void send(String message) =>
+      _socket?.send(utf8.encode(message), InternetAddress(_serverIp), port);
+  void sendBroadcast(String message) => _socket?.send(
+    utf8.encode(message),
+    InternetAddress("255.255.255.255"),
+    port,
+  );
+
+  void dispose() {
+    _socket?.close();
+    _socket = null;
+    _dataStreamController.close();
   }
 }

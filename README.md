@@ -6,8 +6,6 @@
 
 **vGamepad** is a high-performance, low-latency mobile-to-PC controller solution designed specifically for simulation and racing games. It bridges the gap between mobile touch sensors and PC inputs, providing a tactical, responsive driving experience.
 
-![vGamepad Interface](assets/mockup.png)
-
 ---
 
 ## ✨ Key Features

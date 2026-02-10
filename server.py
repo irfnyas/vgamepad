@@ -26,7 +26,7 @@ def get_key_object(name):
         'space': Key.space, 'shift': Key.shift, 'ctrl': Key.ctrl, 
         'alt': Key.alt, 'cmd': Key.cmd, 'enter': Key.enter, 
         'esc': Key.esc, 'tab': Key.tab, 'backspace': Key.backspace,
-        'caps': Key.caps_lock, 'fn': Key.f1, # fn key is tricky, map to f1
+        'caps': Key.caps_lock,
         'up': Key.up, 'down': Key.down, 'left': Key.left, 'right': Key.right,
         '`': '`', '-': '-', '=': '=', '[': '[', ']': ']', '\\': '\\', ';': ';', "'": "'"
     }
