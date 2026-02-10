@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -52,14 +54,32 @@ class _HomePageState extends State<HomePage> {
   bool _isEditedLayout = false;
   List<String> _availableActions = [];
   int? _selectedKeyIndex;
+  SharedPreferences? _prefs;
 
   @override
   void initState() {
     super.initState();
-    _loadManifest();
-    _loadLayout();
+    _initPrefs();
     _loadAvailableActions();
     _initUdp();
+  }
+
+  Future<void> _initPrefs() async {
+    _prefs = await SharedPreferences.getInstance();
+    final savedLayout = _prefs!.getString('active_layout');
+    if (savedLayout != null) {
+      _activeLayout = savedLayout;
+    }
+    _loadManifest();
+    _loadLayout();
+  }
+
+  String _generateNanoId() {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    final rnd = math.Random();
+    return String.fromCharCodes(
+      Iterable.generate(12, (_) => chars.codeUnitAt(rnd.nextInt(chars.length))),
+    );
   }
 
   Future<void> _loadAvailableActions() async {
@@ -79,14 +99,205 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _loadManifest() async {
     try {
+      // 1. Load asset manifest
       final String response = await rootBundle.loadString(
         'assets/layout/_manifest.json',
       );
+      List<dynamic> assets = jsonDecode(response);
+
+      // 2. Scan local documents for custom_*.json
+      final directory = await getApplicationDocumentsDirectory();
+      final List<FileSystemEntity> files = directory.listSync();
+      List<dynamic> customs = [];
+
+      for (var file in files) {
+        if (file is File &&
+            file.path.endsWith('.json') &&
+            file.path.contains('custom_') &&
+            !file.path.contains('_edited.json')) {
+          final fileName = file.path.split('/').last;
+
+          // Try to read metadata from the file itself
+          String title =
+              "Custom (${fileName.replaceAll('custom_', '').replaceAll('.json', '')})";
+          String icon = "🎨";
+          String description = "My created layout";
+
+          try {
+            final content = await file.readAsString();
+            final data = jsonDecode(content);
+            if (data is List &&
+                data.isNotEmpty &&
+                data[0] is Map &&
+                data[0]['isMetadata'] == true) {
+              final meta = data[0];
+              title = meta['title'] ?? title;
+              icon = meta['icon'] ?? icon;
+              description = meta['description'] ?? description;
+            }
+          } catch (e) {
+            debugPrint("Error reading metadata for $fileName: $e");
+          }
+
+          customs.add({
+            "title": title,
+            "id": fileName,
+            "icon": icon,
+            "description": description,
+            "isCustom": true,
+          });
+        }
+      }
+
       setState(() {
-        _manifest = jsonDecode(response);
+        _manifest = [...assets, ...customs];
       });
     } catch (e) {
       debugPrint("Error loading manifest: $e");
+    }
+  }
+
+  Future<void> _saveAsNewLayout() async {
+    final titleController = TextEditingController(text: "New Custom Layout");
+    final iconController = TextEditingController(text: "🎨");
+    final descController = TextEditingController(text: "User created layout");
+
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        title: const Text("Save Layout", style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                SizedBox(
+                  width: 60,
+                  child: TextField(
+                    controller: iconController,
+                    maxLength: 1,
+                    style: const TextStyle(color: Colors.white, fontSize: 24),
+                    decoration: const InputDecoration(
+                      labelText: "Icon",
+                      labelStyle: TextStyle(color: Colors.white38),
+                      counterText: "",
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: TextField(
+                    controller: titleController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      labelText: "Title",
+                      labelStyle: TextStyle(color: Colors.white38),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: descController,
+              maxLines: 2,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+              decoration: const InputDecoration(
+                labelText: "Description",
+                labelStyle: TextStyle(color: Colors.white38),
+                alignLabelWithHint: true,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("Save"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final id = _generateNanoId();
+      final fileName = 'custom_$id.json';
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File('${directory.path}/$fileName');
+
+      // Include metadata as the first element
+      final fullData = [
+        {
+          "isMetadata": true,
+          "title": titleController.text.trim(),
+          "icon": iconController.text.trim(),
+          "description": descController.text.trim(),
+        },
+        ..._layout,
+      ];
+
+      await file.writeAsString(jsonEncode(fullData));
+
+      setState(() {
+        _activeLayout = fileName;
+        _isEditedLayout = false;
+        _selectedKeyIndex = null;
+      });
+
+      _prefs?.setString('active_layout', fileName);
+      _loadManifest(); // Refresh list
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Saved as new layout: ${titleController.text}")),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error creating new layout: $e")));
+    }
+  }
+
+  Future<void> _deleteCustomLayout(String fileName) async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File('${directory.path}/$fileName');
+      if (await file.exists()) {
+        await file.delete();
+      }
+
+      // Also delete the _edited version if it exists
+      final editedFile = File(
+        '${directory.path}/${fileName.replaceAll('.json', '')}_edited.json',
+      );
+      if (await editedFile.exists()) {
+        await editedFile.delete();
+      }
+
+      if (_activeLayout == fileName) {
+        _activeLayout = 'keyboard.json';
+        _prefs?.setString('active_layout', _activeLayout);
+        _loadLayout();
+      }
+
+      _loadManifest();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Custom layout deleted")));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error deleting layout: $e")));
     }
   }
 
@@ -100,19 +311,39 @@ class _HomePageState extends State<HomePage> {
 
       if (await editedFile.exists()) {
         jsonStr = await editedFile.readAsString();
+        final data = jsonDecode(jsonStr);
         setState(() {
           _isEditedLayout = true;
-          _layout = jsonDecode(jsonStr);
+          if (data is List &&
+              data.isNotEmpty &&
+              data[0] is Map &&
+              data[0]['isMetadata'] == true) {
+            _layout = data.sublist(1);
+          } else {
+            _layout = data;
+          }
         });
       } else {
         jsonStr = await rootBundle.loadString('assets/layout/$_activeLayout');
+        final data = jsonDecode(jsonStr);
         setState(() {
           _isEditedLayout = false;
-          _layout = jsonDecode(jsonStr);
+          if (data is List &&
+              data.isNotEmpty &&
+              data[0] is Map &&
+              data[0]['isMetadata'] == true) {
+            _layout = data.sublist(1);
+          } else {
+            _layout = data;
+          }
         });
       }
     } catch (e) {
       debugPrint("Error loading layout: $e");
+
+      // fallback to keyboard layout
+      _activeLayout = "keyboard.json";
+      _loadLayout();
     }
   }
 
@@ -198,6 +429,7 @@ class _HomePageState extends State<HomePage> {
         "y1": 45,
         "x2": 110,
         "y2": 55,
+        "color": null,
       };
       _layout.add(newKey);
       _selectedKeyIndex = _layout.length - 1;
@@ -219,6 +451,7 @@ class _HomePageState extends State<HomePage> {
       newKey["x2"] = (newKey["x2"] + 5).clamp(5, 200);
       newKey["y1"] = (newKey["y1"] + 5).clamp(0, 95);
       newKey["y2"] = (newKey["y2"] + 5).clamp(5, 100);
+      newKey["color"] = source["color"];
 
       _layout.add(newKey);
       _selectedKeyIndex = _layout.length - 1;
@@ -394,19 +627,24 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
           const SizedBox(height: 60),
-          _buildMenuButton(
-            icon: Icons.search,
-            label: "AUTO SEARCH",
-            onPressed: _startDiscovery,
-            color: Colors.cyanAccent,
-          ),
-          const SizedBox(height: 16),
-          _buildMenuButton(
-            icon: Icons.edit,
-            label: "MANUAL IP",
-            onPressed: _showManualIpDialog,
-            color: Colors.white,
-            isOutlined: true,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildMenuButton(
+                icon: Icons.search,
+                label: "AUTO SEARCH",
+                onPressed: _startDiscovery,
+                color: Colors.cyanAccent,
+              ),
+              const SizedBox(width: 16),
+              _buildMenuButton(
+                icon: Icons.edit,
+                label: "MANUAL IP",
+                onPressed: _showManualIpDialog,
+                color: Colors.white,
+                isOutlined: true,
+              ),
+            ],
           ),
         ],
       ),
@@ -669,6 +907,15 @@ class _HomePageState extends State<HomePage> {
                 onPressed: _removeSelectedKey,
                 tooltip: "Remove key",
               ),
+              IconButton(
+                icon: const Icon(
+                  Icons.palette_outlined,
+                  size: 20,
+                  color: Colors.cyanAccent,
+                ),
+                onPressed: () => _showColorDialog(_layout[_selectedKeyIndex!]),
+                tooltip: "Edit color",
+              ),
             ],
           ),
         if (!_isLocked && _selectedKeyIndex == null)
@@ -677,14 +924,11 @@ class _HomePageState extends State<HomePage> {
             onPressed: _addNewKey,
             tooltip: "Add new key",
           ),
-        if (_selectedKeyIndex == null)
+        if (!_isLocked && _isEditedLayout)
           IconButton(
-            icon: Icon(
-              Icons.layers,
-              color: _isLocked ? Colors.white24 : Colors.cyanAccent,
-              size: 20,
-            ),
-            onPressed: _isLocked ? null : _showLayoutSheet,
+            icon: const Icon(Icons.save_as, color: Colors.cyanAccent, size: 20),
+            tooltip: "Save as new layout",
+            onPressed: _saveAsNewLayout,
           ),
         if (!_isLocked && _isEditedLayout)
           IconButton(
@@ -696,10 +940,19 @@ class _HomePageState extends State<HomePage> {
             tooltip: "Reset to default",
             onPressed: _resetLayout,
           ),
+        if (_selectedKeyIndex == null && !_isLocked)
+          IconButton(
+            icon: Icon(
+              Icons.layers,
+              color: _isLocked ? Colors.white24 : Colors.cyanAccent,
+              size: 20,
+            ),
+            onPressed: _isLocked ? null : _showLayoutSheet,
+          ),
         IconButton(
           icon: Icon(
             _isLocked ? Icons.lock : Icons.lock_open,
-            color: _isLocked ? Colors.cyanAccent : Colors.white24,
+            color: Colors.cyanAccent,
             size: 20,
           ),
           onPressed: () => setState(() => _isLocked = true),
@@ -870,13 +1123,23 @@ class _HomePageState extends State<HomePage> {
     final String action = k["action"];
     final String label = k["label"];
 
+    Color? customColor;
+    if (k["color"] != null) {
+      try {
+        final hexString = k["color"].toString().replaceAll('#', '');
+        customColor = Color(int.parse('FF$hexString', radix: 16));
+      } catch (e) {
+        debugPrint("Invalid hex color: ${k["color"]}");
+      }
+    }
+
     return Padding(
       padding: const EdgeInsets.all(1.0),
       child: Material(
         color: Colors.transparent,
         child: Ink(
           decoration: BoxDecoration(
-            color: _getButtonColor(action),
+            color: customColor ?? _getButtonColor(action),
             borderRadius: BorderRadius.circular(3),
             border: Border.all(
               color: !_isLocked
@@ -916,7 +1179,7 @@ class _HomePageState extends State<HomePage> {
                     !_isLocked ? "$label\n'$action'" : label.toUpperCase(),
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: !_isLocked ? Colors.cyanAccent : Colors.white54,
+                      color: !_isLocked ? Colors.cyanAccent : Colors.white70,
                       fontWeight: FontWeight.bold,
                       fontSize: !_isLocked ? 8 : null,
                     ),
@@ -1271,65 +1534,73 @@ class _HomePageState extends State<HomePage> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.6,
-          minChildSize: 0.4,
-          maxChildSize: 0.8,
-          expand: false,
-          builder: (context, scrollController) {
-            return ListView.builder(
-              controller: scrollController,
-              padding: EdgeInsets.only(
-                top: 24,
-                left: 16,
-                right: 16,
-                bottom: 24 + MediaQuery.of(context).padding.bottom,
-              ),
-              itemCount: _manifest.length + 1,
-              itemBuilder: (context, index) {
-                if (index == 0) {
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 4,
-                        margin: const EdgeInsets.only(bottom: 20),
-                        decoration: BoxDecoration(
-                          color: Colors.white10,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                      const Text(
-                        "SELECT INTERFACE",
-                        style: TextStyle(
-                          color: Colors.white38,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 4,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-                  );
-                }
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return DraggableScrollableSheet(
+              initialChildSize: 0.6,
+              minChildSize: 0.4,
+              maxChildSize: 0.8,
+              expand: false,
+              builder: (context, scrollController) {
+                return ListView.builder(
+                  controller: scrollController,
+                  padding: EdgeInsets.only(
+                    top: 24,
+                    left: 16,
+                    right: 16,
+                    bottom: 24 + MediaQuery.of(context).padding.bottom,
+                  ),
+                  itemCount: _manifest.length + 1,
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 4,
+                            margin: const EdgeInsets.only(bottom: 20),
+                            decoration: BoxDecoration(
+                              color: Colors.white10,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                          const Text(
+                            "SELECT INTERFACE",
+                            style: TextStyle(
+                              color: Colors.white38,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 4,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+                      );
+                    }
 
-                final item = _manifest[index - 1];
-                final bool isLocked = item["isLocked"] ?? false;
+                    final item = _manifest[index - 1];
+                    final bool isLocked = item["isLocked"] ?? false;
 
-                if (isLocked) {
-                  return _buildLockedOption(
-                    item["title"],
-                    item["icon"],
-                    item["description"] ?? "",
-                  );
-                }
+                    if (isLocked) {
+                      return _buildLockedOption(
+                        item["title"],
+                        item["icon"],
+                        item["description"] ?? "",
+                      );
+                    }
 
-                return _buildLayoutOption(
-                  item["title"],
-                  item["id"],
-                  item["icon"],
-                  item["description"] ?? "",
+                    return _buildLayoutOption(
+                      item["title"],
+                      item["id"],
+                      item["icon"],
+                      item["description"] ?? "",
+                      isCustom: item["isCustom"] ?? false,
+                      onDelete: () {
+                        setSheetState(() {});
+                      },
+                    );
+                  },
                 );
               },
             );
@@ -1343,22 +1614,69 @@ class _HomePageState extends State<HomePage> {
     String title,
     String fileName,
     String icon,
-    String description,
-  ) {
+    String description, {
+    bool isCustom = false,
+    VoidCallback? onDelete,
+  }) {
     final bool isSelected = _activeLayout == fileName;
     return ListSelectionItem(
       title: title,
       icon: icon,
-      description: description,
+      description:
+          '$description (${fileName.replaceAll('custom_', '').replaceAll('.json', '')})',
       isSelected: isSelected,
       onTap: () {
-        setState(() {
-          _activeLayout = fileName;
-          _layout = [];
-        });
+        setState(() => _activeLayout = fileName);
+        _prefs?.setString('active_layout', fileName);
         _loadLayout();
         Navigator.pop(context);
       },
+      trailing: isCustom
+          ? IconButton(
+              icon: const Icon(
+                Icons.delete_outline,
+                color: Colors.redAccent,
+                size: 20,
+              ),
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    backgroundColor: const Color(0xFF1A1A1A),
+                    title: const Text(
+                      "Delete Layout",
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    content: const Text(
+                      "Remove this custom layout?",
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text("Cancel"),
+                      ),
+                      ElevatedButton(
+                        onPressed: () async {
+                          Navigator.pop(ctx); // Close dialog
+                          await _deleteCustomLayout(fileName);
+                          if (!mounted) return;
+                          Navigator.pop(context); // Close bottom sheet
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.redAccent,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text("Delete"),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            )
+          : isSelected
+          ? const Icon(Icons.check_circle, color: Colors.cyanAccent, size: 18)
+          : null,
     );
   }
 
@@ -1395,6 +1713,149 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  void _showColorDialog(Map<String, dynamic> k) {
+    final TextEditingController hexController = TextEditingController(
+      text: k["color"]?.toString().replaceAll('#', '') ?? "",
+    );
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF1A1A1A),
+            title: const Text(
+              "Edit Color",
+              style: TextStyle(color: Colors.white),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: hexController,
+                  onChanged: (val) => setDialogState(() {}),
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: "Hex Code",
+                    labelStyle: TextStyle(color: Colors.white38),
+                    hintText: "e.g. FF5722",
+                    hintStyle: TextStyle(color: Colors.white10),
+                    prefixText: "#",
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  "Presets",
+                  style: TextStyle(color: Colors.white38, fontSize: 12),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    _buildColorPreset(
+                      null,
+                      const Color(0xFF1A1A1A),
+                      hexController,
+                      isSelected: hexController.text.trim().isEmpty,
+                      onSelect: () => setDialogState(() {}),
+                    ),
+                    _buildColorPreset(
+                      "2A2A2A",
+                      const Color(0xFF2A2A2A),
+                      hexController,
+                      isSelected:
+                          hexController.text.trim().toUpperCase() == "2A2A2A",
+                      onSelect: () => setDialogState(() {}),
+                    ),
+                    _buildColorPreset(
+                      "311B1B",
+                      const Color(0xFF311B1B),
+                      hexController,
+                      isSelected:
+                          hexController.text.trim().toUpperCase() == "311B1B",
+                      onSelect: () => setDialogState(() {}),
+                    ),
+                    _buildColorPreset(
+                      "1B311B",
+                      const Color(0xFF1B311B),
+                      hexController,
+                      isSelected:
+                          hexController.text.trim().toUpperCase() == "1B311B",
+                      onSelect: () => setDialogState(() {}),
+                    ),
+                    _buildColorPreset(
+                      "1B2631",
+                      const Color(0xFF1B2631),
+                      hexController,
+                      isSelected:
+                          hexController.text.trim().toUpperCase() == "1B2631",
+                      onSelect: () => setDialogState(() {}),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Cancel"),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    String hex = hexController.text.trim().replaceAll('#', '');
+                    k["color"] = hex.isEmpty ? null : hex;
+                  });
+                  _saveLayout();
+                  Navigator.pop(context);
+                },
+                child: const Text("Save"),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildColorPreset(
+    String? hex,
+    Color previewColor,
+    TextEditingController controller, {
+    bool isSelected = false,
+    VoidCallback? onSelect,
+  }) {
+    return InkWell(
+      onTap: () {
+        controller.text = hex ?? "";
+        onSelect?.call();
+      },
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: previewColor,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: isSelected ? Colors.cyanAccent : Colors.white24,
+            width: isSelected ? 2 : 1,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: Colors.cyanAccent.withValues(alpha: 0.3),
+                    spreadRadius: 2,
+                    blurRadius: 4,
+                  ),
+                ]
+              : null,
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _discoveryTimer?.cancel();
@@ -1413,6 +1874,7 @@ class ListSelectionItem extends StatelessWidget {
   final String description;
   final bool isSelected;
   final VoidCallback onTap;
+  final Widget? trailing;
 
   const ListSelectionItem({
     super.key,
@@ -1421,6 +1883,7 @@ class ListSelectionItem extends StatelessWidget {
     required this.description,
     required this.isSelected,
     required this.onTap,
+    this.trailing,
   });
 
   @override
@@ -1454,9 +1917,15 @@ class ListSelectionItem extends StatelessWidget {
             fontSize: 11,
           ),
         ),
-        trailing: isSelected
-            ? const Icon(Icons.check_circle, color: Colors.cyanAccent, size: 18)
-            : null,
+        trailing:
+            trailing ??
+            (isSelected
+                ? const Icon(
+                    Icons.check_circle,
+                    color: Colors.cyanAccent,
+                    size: 18,
+                  )
+                : null),
       ),
     );
   }
