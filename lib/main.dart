@@ -51,6 +51,7 @@ class _HomePageState extends State<HomePage> {
   String _activeLayout = 'keyboard.json';
   bool _isEditedLayout = false;
   List<String> _availableActions = [];
+  int? _selectedKeyIndex;
 
   @override
   void initState() {
@@ -186,6 +187,83 @@ class _HomePageState extends State<HomePage> {
         context,
       ).showSnackBar(SnackBar(content: Text("Error resetting layout: $e")));
     }
+  }
+
+  void _addNewKey() {
+    setState(() {
+      final newKey = {
+        "action": "new_key",
+        "label": "NEW",
+        "x1": 90,
+        "y1": 45,
+        "x2": 110,
+        "y2": 55,
+      };
+      _layout.add(newKey);
+      _selectedKeyIndex = _layout.length - 1;
+    });
+    _saveLayout();
+  }
+
+  void _duplicateSelectedKey() {
+    if (_selectedKeyIndex == null || _selectedKeyIndex! >= _layout.length) {
+      return;
+    }
+
+    setState(() {
+      final source = _layout[_selectedKeyIndex!];
+      final newKey = Map<String, dynamic>.from(source);
+
+      // Offset the duplicate slightly so it's visible
+      newKey["x1"] = (newKey["x1"] + 5).clamp(0, 195);
+      newKey["x2"] = (newKey["x2"] + 5).clamp(5, 200);
+      newKey["y1"] = (newKey["y1"] + 5).clamp(0, 95);
+      newKey["y2"] = (newKey["y2"] + 5).clamp(5, 100);
+
+      _layout.add(newKey);
+      _selectedKeyIndex = _layout.length - 1;
+    });
+    _saveLayout();
+  }
+
+  void _removeSelectedKey() async {
+    if (_selectedKeyIndex == null || _selectedKeyIndex! >= _layout.length) {
+      return;
+    }
+
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        title: const Text("Delete Key", style: TextStyle(color: Colors.white)),
+        content: const Text(
+          "Are you sure you want to remove this key? This cannot be undone.",
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Remove"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() {
+      _layout.removeAt(_selectedKeyIndex!);
+      _selectedKeyIndex = null;
+    });
+    _saveLayout();
   }
 
   Future<void> _initUdp() async {
@@ -541,14 +619,73 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
       actions: [
-        IconButton(
-          icon: Icon(
-            Icons.layers,
-            color: _isLocked ? Colors.white24 : Colors.cyanAccent,
-            size: 20,
+        if (!_isLocked &&
+            _selectedKeyIndex != null &&
+            _selectedKeyIndex! < _layout.length)
+          Builder(
+            builder: (context) {
+              final k = _layout[_selectedKeyIndex!];
+              return TextButton.icon(
+                onPressed: () => _showPositionDialog(k),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
+                icon: const Icon(
+                  Icons.edit,
+                  size: 14,
+                  color: Colors.cyanAccent,
+                ),
+                label: Text(
+                  "X(${k["x1"]},${k["x2"]}) Y(${k["y1"]},${k["y2"]})",
+                  style: const TextStyle(
+                    color: Colors.cyanAccent,
+                    fontSize: 10,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              );
+            },
           ),
-          onPressed: _isLocked ? null : _showLayoutSheet,
-        ),
+        if (!_isLocked && _selectedKeyIndex != null)
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(
+                  Icons.copy,
+                  size: 18,
+                  color: Colors.cyanAccent,
+                ),
+                onPressed: _duplicateSelectedKey,
+                tooltip: "Duplicate key",
+              ),
+              IconButton(
+                icon: const Icon(
+                  Icons.delete_outline,
+                  size: 20,
+                  color: Colors.redAccent,
+                ),
+                onPressed: _removeSelectedKey,
+                tooltip: "Remove key",
+              ),
+            ],
+          ),
+        if (!_isLocked && _selectedKeyIndex == null)
+          IconButton(
+            icon: const Icon(Icons.add, size: 20, color: Colors.cyanAccent),
+            onPressed: _addNewKey,
+            tooltip: "Add new key",
+          ),
+        if (_selectedKeyIndex == null)
+          IconButton(
+            icon: Icon(
+              Icons.layers,
+              color: _isLocked ? Colors.white24 : Colors.cyanAccent,
+              size: 20,
+            ),
+            onPressed: _isLocked ? null : _showLayoutSheet,
+          ),
         if (!_isLocked && _isEditedLayout)
           IconButton(
             icon: const Icon(
@@ -587,27 +724,149 @@ class _HomePageState extends State<HomePage> {
         final double unitW = constraints.maxWidth / 200;
         final double unitH = constraints.maxHeight / 100;
 
-        return Stack(
-          children: _layout.map((k) {
-            final double x = k["x1"].toDouble() * unitW;
-            final double y = k["y1"].toDouble() * unitH;
-            final double w = (k["x2"] - k["x1"]).toDouble() * unitW;
-            final double h = (k["y2"] - k["y1"]).toDouble() * unitH;
+        return GestureDetector(
+          onTap: () {
+            if (_selectedKeyIndex != null) {
+              setState(() => _selectedKeyIndex = null);
+            }
+          },
+          child: Stack(
+            children: [
+              // Use a transparent background container to catch taps
+              Positioned.fill(child: Container(color: Colors.transparent)),
+              ..._layout.asMap().entries.map((entry) {
+                final int index = entry.key;
+                final Map<String, dynamic> k = entry.value;
+                final double x = k["x1"].toDouble() * unitW;
+                final double y = k["y1"].toDouble() * unitH;
+                final double w = (k["x2"] - k["x1"]).toDouble() * unitW;
+                final double h = (k["y2"] - k["y1"]).toDouble() * unitH;
 
-            return Positioned(
-              left: x,
-              top: y,
-              width: w,
-              height: h,
-              child: _buildKey(k),
-            );
-          }).toList(),
+                final isSelected = _selectedKeyIndex == index;
+
+                return Positioned(
+                  left: x,
+                  top: y,
+                  width: w,
+                  height: h,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      GestureDetector(
+                        onTap: !_isLocked && _selectedKeyIndex == null
+                            ? () => _showEditDialog(k)
+                            : null,
+                        onLongPress: !_isLocked
+                            ? () {
+                                setState(() {
+                                  final selectedKey = _layout.removeAt(index);
+                                  _layout.add(selectedKey);
+                                  _selectedKeyIndex = _layout.length - 1;
+                                });
+                              }
+                            : null,
+                        onPanUpdate: isSelected && !_isLocked
+                            ? (details) {
+                                setState(() {
+                                  double dx = details.delta.dx / unitW;
+                                  double dy = details.delta.dy / unitH;
+
+                                  double currentW = (k["x2"] - k["x1"])
+                                      .toDouble();
+                                  double currentH = (k["y2"] - k["y1"])
+                                      .toDouble();
+
+                                  k["x1"] = (k["x1"] + dx)
+                                      .clamp(0, 200 - currentW)
+                                      .round();
+                                  k["x2"] = (k["x1"] + currentW)
+                                      .clamp(0, 200)
+                                      .round();
+                                  k["y1"] = (k["y1"] + dy)
+                                      .clamp(0, 100 - currentH)
+                                      .round();
+                                  k["y2"] = (k["y1"] + currentH)
+                                      .clamp(0, 100)
+                                      .round();
+                                });
+                              }
+                            : null,
+                        onPanEnd: isSelected && !_isLocked
+                            ? (_) => _saveLayout()
+                            : null,
+                        child: Container(
+                          decoration: isSelected
+                              ? BoxDecoration(
+                                  border: Border.all(
+                                    color: Colors.cyanAccent,
+                                    width: 2,
+                                  ),
+                                  borderRadius: BorderRadius.circular(3),
+                                )
+                              : null,
+                          child: _buildKey(k, isSelected),
+                        ),
+                      ),
+                      if (isSelected && !_isLocked)
+                        Positioned(
+                          right: -24,
+                          bottom: -24,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onPanUpdate: (details) {
+                              setState(() {
+                                double dx = details.delta.dx / unitW;
+                                double dy = details.delta.dy / unitH;
+                                k["x2"] = (k["x2"] + dx)
+                                    .clamp(k["x1"] + 5, 200)
+                                    .round();
+                                k["y2"] = (k["y2"] + dy)
+                                    .clamp(k["y1"] + 5, 100)
+                                    .round();
+                              });
+                            },
+                            onPanEnd: (_) => _saveLayout(),
+                            child: Container(
+                              width: 48,
+                              height: 48,
+                              alignment: Alignment.center,
+                              child: Container(
+                                width: 28,
+                                height: 28,
+                                decoration: BoxDecoration(
+                                  color: Colors.cyanAccent,
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.3,
+                                      ),
+                                      blurRadius: 4,
+                                      spreadRadius: 1,
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(
+                                  Icons.open_in_full,
+                                  size: 16,
+                                  color: Colors.black,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ),
         );
       },
     );
   }
 
-  Widget _buildKey(Map<String, dynamic> k) {
+  Widget _buildKey(Map<String, dynamic> k, [bool isSelected = false]) {
     final String action = k["action"];
     final String label = k["label"];
 
@@ -628,7 +887,9 @@ class _HomePageState extends State<HomePage> {
           ),
           child: InkWell(
             borderRadius: BorderRadius.circular(3),
-            onTap: !_isLocked ? () => _showEditDialog(k) : null,
+            onTap: !_isLocked && _selectedKeyIndex == null
+                ? () => _showEditDialog(k)
+                : null,
             onTapDown: _isLocked
                 ? (_) {
                     HapticFeedback.vibrate();
@@ -666,6 +927,164 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
       ),
+    );
+  }
+
+  void _showPositionDialog(Map<String, dynamic> k) {
+    final x1Controller = TextEditingController(text: k["x1"].toString());
+    final x2Controller = TextEditingController(text: k["x2"].toString());
+    final y1Controller = TextEditingController(text: k["y1"].toString());
+    final y2Controller = TextEditingController(text: k["y2"].toString());
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        title: const Text(
+          "Edit Position",
+          style: TextStyle(color: Colors.white),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                "Grid System: X(0-200), Y(0-100)",
+                style: TextStyle(color: Colors.white38, fontSize: 10),
+              ),
+              const SizedBox(height: 8),
+              ListenableBuilder(
+                listenable: Listenable.merge([
+                  x1Controller,
+                  x2Controller,
+                  y1Controller,
+                  y2Controller,
+                ]),
+                builder: (context, _) {
+                  final x1 = int.tryParse(x1Controller.text) ?? -1;
+                  final x2 = int.tryParse(x2Controller.text) ?? -1;
+                  final y1 = int.tryParse(y1Controller.text) ?? -1;
+                  final y2 = int.tryParse(y2Controller.text) ?? -1;
+
+                  final bool xRangeValid =
+                      x1 >= 0 && x1 <= 200 && x2 >= 0 && x2 <= 200;
+                  final bool yRangeValid =
+                      y1 >= 0 && y1 <= 100 && y2 >= 0 && y2 <= 100;
+                  final bool sizeValid = (x2 - x1) >= 5 && (y2 - y1) >= 5;
+
+                  final bool isValid = xRangeValid && yRangeValid && sizeValid;
+
+                  return Column(
+                    children: [
+                      Text(
+                        "Width: ${x2 - x1}, Height: ${y2 - y1}",
+                        style: TextStyle(
+                          color: isValid ? Colors.cyanAccent : Colors.redAccent,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      if (!isValid)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4.0),
+                          child: Text(
+                            !xRangeValid || !yRangeValid
+                                ? "Out of bounds: X(0-200), Y(0-100)"
+                                : "Invalid size: width & height must be >= 5",
+                            style: const TextStyle(
+                              color: Colors.redAccent,
+                              fontSize: 8,
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(child: _buildCoordField("X1", x1Controller)),
+                  const SizedBox(width: 16),
+                  Expanded(child: _buildCoordField("X2", x2Controller)),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(child: _buildCoordField("Y1", y1Controller)),
+                  const SizedBox(width: 16),
+                  Expanded(child: _buildCoordField("Y2", y2Controller)),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          ListenableBuilder(
+            listenable: Listenable.merge([
+              x1Controller,
+              x2Controller,
+              y1Controller,
+              y2Controller,
+            ]),
+            builder: (context, _) {
+              final x1 = int.tryParse(x1Controller.text) ?? -1;
+              final x2 = int.tryParse(x2Controller.text) ?? -1;
+              final y1 = int.tryParse(y1Controller.text) ?? -1;
+              final y2 = int.tryParse(y2Controller.text) ?? -1;
+
+              final bool isValid =
+                  x1 >= 0 &&
+                  x1 <= 200 &&
+                  x2 >= 0 &&
+                  x2 <= 200 &&
+                  y1 >= 0 &&
+                  y1 <= 100 &&
+                  y2 >= 0 &&
+                  y2 <= 100 &&
+                  (x2 - x1) >= 5 &&
+                  (y2 - y1) >= 5;
+
+              return ElevatedButton(
+                onPressed: isValid
+                    ? () {
+                        setState(() {
+                          k["x1"] = x1;
+                          k["x2"] = x2;
+                          k["y1"] = y1;
+                          k["y2"] = y2;
+                        });
+                        _selectedKeyIndex = null;
+                        _saveLayout();
+                        Navigator.pop(context);
+                      }
+                    : null,
+                child: const Text("Save"),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCoordField(String label, TextEditingController controller) {
+    return TextField(
+      controller: controller,
+      keyboardType: TextInputType.number,
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: Colors.white70),
+        enabledBorder: const UnderlineInputBorder(
+          borderSide: BorderSide(color: Colors.white24),
+        ),
+      ),
+      style: const TextStyle(color: Colors.white, fontFamily: 'monospace'),
     );
   }
 
