@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -48,13 +49,31 @@ class _HomePageState extends State<HomePage> {
   List<dynamic> _layout = [];
   List<dynamic> _manifest = [];
   String _activeLayout = 'keyboard.json';
+  bool _isEditedLayout = false;
+  List<String> _availableActions = [];
 
   @override
   void initState() {
     super.initState();
     _loadManifest();
     _loadLayout();
+    _loadAvailableActions();
     _initUdp();
+  }
+
+  Future<void> _loadAvailableActions() async {
+    try {
+      final String response = await rootBundle.loadString(
+        'assets/layout/keyboard.json',
+      );
+      final List<dynamic> data = jsonDecode(response);
+      setState(() {
+        _availableActions =
+            data.map((e) => e['action'].toString()).toSet().toList()..sort();
+      });
+    } catch (e) {
+      debugPrint("Error loading available actions: $e");
+    }
   }
 
   Future<void> _loadManifest() async {
@@ -72,14 +91,100 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _loadLayout() async {
     try {
-      final String response = await rootBundle.loadString(
-        'assets/layout/$_activeLayout',
+      String jsonStr;
+      final directory = await getApplicationDocumentsDirectory();
+      final editedFile = File(
+        '${directory.path}/${_activeLayout.replaceAll('.json', '')}_edited.json',
       );
-      setState(() {
-        _layout = jsonDecode(response);
-      });
+
+      if (await editedFile.exists()) {
+        jsonStr = await editedFile.readAsString();
+        setState(() {
+          _isEditedLayout = true;
+          _layout = jsonDecode(jsonStr);
+        });
+      } else {
+        jsonStr = await rootBundle.loadString('assets/layout/$_activeLayout');
+        setState(() {
+          _isEditedLayout = false;
+          _layout = jsonDecode(jsonStr);
+        });
+      }
     } catch (e) {
       debugPrint("Error loading layout: $e");
+    }
+  }
+
+  Future<void> _saveLayout() async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File(
+        '${directory.path}/${_activeLayout.replaceAll('.json', '')}_edited.json',
+      );
+      await file.writeAsString(jsonEncode(_layout));
+      setState(() => _isEditedLayout = true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Layout saved locally")));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error saving layout: $e")));
+    }
+  }
+
+  Future<void> _resetLayout() async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        title: const Text(
+          "Reset Layout",
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          "Are you sure you want to delete your custom mappings and revert to the default layout?",
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orangeAccent,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text("Reset"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File(
+        '${directory.path}/${_activeLayout.replaceAll('.json', '')}_edited.json',
+      );
+      if (await file.exists()) {
+        await file.delete();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Reverted to default layout")),
+        );
+        _loadLayout();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error resetting layout: $e")));
     }
   }
 
@@ -444,6 +549,16 @@ class _HomePageState extends State<HomePage> {
           ),
           onPressed: _isLocked ? null : _showLayoutSheet,
         ),
+        if (!_isLocked && _isEditedLayout)
+          IconButton(
+            icon: const Icon(
+              Icons.restore,
+              color: Colors.orangeAccent,
+              size: 20,
+            ),
+            tooltip: "Reset to default",
+            onPressed: _resetLayout,
+          ),
         IconButton(
           icon: Icon(
             _isLocked ? Icons.lock : Icons.lock_open,
@@ -484,7 +599,7 @@ class _HomePageState extends State<HomePage> {
               top: y,
               width: w,
               height: h,
-              child: _buildKey(k["action"], k["label"]),
+              child: _buildKey(k),
             );
           }).toList(),
         );
@@ -492,7 +607,10 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildKey(String action, String label) {
+  Widget _buildKey(Map<String, dynamic> k) {
+    final String action = k["action"];
+    final String label = k["label"];
+
     return Padding(
       padding: const EdgeInsets.all(1.0),
       child: Material(
@@ -501,20 +619,32 @@ class _HomePageState extends State<HomePage> {
           decoration: BoxDecoration(
             color: _getButtonColor(action),
             borderRadius: BorderRadius.circular(3),
-            border: Border.all(color: Colors.white10, width: 0.5),
+            border: Border.all(
+              color: !_isLocked
+                  ? Colors.cyanAccent.withValues(alpha: 0.3)
+                  : Colors.white10,
+              width: 0.5,
+            ),
           ),
           child: InkWell(
             borderRadius: BorderRadius.circular(3),
-            onTapDown: (_) {
-              HapticFeedback.vibrate();
-              _udp.send("${action.toLowerCase()}:1.0");
-            },
-            onTapUp: (_) {
-              _udp.send("${action.toLowerCase()}:0.0");
-            },
-            onTapCancel: () {
-              _udp.send("${action.toLowerCase()}:0.0");
-            },
+            onTap: !_isLocked ? () => _showEditDialog(k) : null,
+            onTapDown: _isLocked
+                ? (_) {
+                    HapticFeedback.vibrate();
+                    _udp.send("${action.toLowerCase()}:1.0");
+                  }
+                : null,
+            onTapUp: _isLocked
+                ? (_) {
+                    _udp.send("${action.toLowerCase()}:0.0");
+                  }
+                : null,
+            onTapCancel: _isLocked
+                ? () {
+                    _udp.send("${action.toLowerCase()}:0.0");
+                  }
+                : null,
             child: Container(
               alignment: Alignment.center,
               child: Padding(
@@ -522,11 +652,12 @@ class _HomePageState extends State<HomePage> {
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
                   child: Text(
-                    label.toUpperCase(),
+                    !_isLocked ? "$label\n'$action'" : label.toUpperCase(),
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white54,
+                    style: TextStyle(
+                      color: !_isLocked ? Colors.cyanAccent : Colors.white54,
                       fontWeight: FontWeight.bold,
+                      fontSize: !_isLocked ? 8 : null,
                     ),
                   ),
                 ),
@@ -534,6 +665,160 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  void _showEditDialog(Map<String, dynamic> k) {
+    final labelController = TextEditingController(text: k["label"]);
+    final actionController = TextEditingController(text: k["action"]);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        title: const Text("Edit Key", style: TextStyle(color: Colors.white)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Position: X(${k["x1"]},${k["x2"]}) Y(${k["y1"]},${k["y2"]})",
+                style: const TextStyle(color: Colors.white38, fontSize: 12),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: labelController,
+                      decoration: InputDecoration(
+                        labelText: "Label",
+                        hintText: k["label"],
+                        hintStyle: const TextStyle(color: Colors.white24),
+                        labelStyle: const TextStyle(color: Colors.white70),
+                        enabledBorder: const UnderlineInputBorder(
+                          borderSide: BorderSide(color: Colors.white24),
+                        ),
+                      ),
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Autocomplete<String>(
+                      initialValue: TextEditingValue(text: k["action"]),
+                      optionsBuilder: (TextEditingValue textEditingValue) {
+                        if (textEditingValue.text == '') {
+                          return _availableActions;
+                        }
+                        return _availableActions.where((String option) {
+                          return option.contains(
+                            textEditingValue.text.toLowerCase(),
+                          );
+                        });
+                      },
+                      onSelected: (String selection) {
+                        actionController.text = selection;
+                      },
+                      fieldViewBuilder:
+                          (context, controller, focusNode, onFieldSubmitted) {
+                            // Sync initial value and manual edits
+                            if (controller.text != actionController.text &&
+                                actionController.text.isNotEmpty &&
+                                controller.text.isEmpty) {
+                              controller.text = actionController.text;
+                            }
+                            controller.addListener(() {
+                              actionController.text = controller.text;
+                            });
+
+                            return TextField(
+                              controller: controller,
+                              focusNode: focusNode,
+                              decoration: InputDecoration(
+                                labelText: "Action",
+                                hintText: k["action"],
+                                hintStyle: const TextStyle(
+                                  color: Colors.white24,
+                                ),
+                                labelStyle: const TextStyle(
+                                  color: Colors.white70,
+                                ),
+                                enabledBorder: const UnderlineInputBorder(
+                                  borderSide: BorderSide(color: Colors.white24),
+                                ),
+                              ),
+                              style: const TextStyle(color: Colors.white),
+                            );
+                          },
+                      optionsViewBuilder: (context, onSelected, options) {
+                        return Align(
+                          alignment: Alignment.topLeft,
+                          child: Material(
+                            elevation: 4.0,
+                            color: const Color(0xFF2A2A2A),
+                            child: SizedBox(
+                              height: 200,
+                              width: 200, // Should ideally match field width
+                              child: ListView.builder(
+                                padding: EdgeInsets.zero,
+                                itemCount: options.length,
+                                itemBuilder: (BuildContext context, int index) {
+                                  final String option = options.elementAt(
+                                    index,
+                                  );
+                                  return ListTile(
+                                    title: Text(
+                                      option,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    onTap: () => onSelected(option),
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          ListenableBuilder(
+            listenable: Listenable.merge([labelController, actionController]),
+            builder: (context, _) {
+              final bool isValid =
+                  labelController.text.trim().isNotEmpty &&
+                  actionController.text.trim().isNotEmpty;
+              return ElevatedButton(
+                onPressed: isValid
+                    ? () {
+                        setState(() {
+                          k["label"] = labelController.text.trim();
+                          k["action"] = actionController.text.trim();
+                        });
+                        _saveLayout();
+                        Navigator.pop(context);
+                      }
+                    : null,
+                child: const Text("Save"),
+              );
+            },
+          ),
+        ],
       ),
     );
   }
@@ -570,7 +855,7 @@ class _HomePageState extends State<HomePage> {
         return DraggableScrollableSheet(
           initialChildSize: 0.6,
           minChildSize: 0.4,
-          maxChildSize: 0.95,
+          maxChildSize: 0.8,
           expand: false,
           builder: (context, scrollController) {
             return ListView.builder(

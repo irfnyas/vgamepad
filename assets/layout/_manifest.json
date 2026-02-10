@@ -9,15 +9,15 @@
     {
         "id": "nes.json",
         "title": "NES",
-        "icon": "🎮",
+        "icon": "👾",
         "description": "Classic 8-bit gaming experience",
         "isLocked": false
     },
     {
-        "id": "ps5.json",
-        "title": "PS5",
-        "icon": "🕹️",
-        "description": "Dualsense style layout",
+        "id": "xbox.json",
+        "title": "Xbox",
+        "icon": "🎮",
+        "description": "Xbox style layout",
         "isLocked": true
     }
 ]
