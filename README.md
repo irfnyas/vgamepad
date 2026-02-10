@@ -4,32 +4,50 @@
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org)
 
-**vGamepad** is a high-performance, low-latency mobile-to-PC controller solution designed specifically for simulation and racing games. It bridges the gap between mobile touch sensors and PC inputs, providing a tactical, responsive driving experience.
+**vGamepad** is a premium, high-performance mobile-to-PC controller solution designed for gamers who demand precision and style. It bridges the gap between mobile touch sensors and PC inputs, providing a tactical, responsive, and fully customizable gaming experience.
 
 ---
 
 ## ✨ Key Features
 
--   **⚡ Ultra-Low Latency**: Optimized UDP transport layer with a **60Hz (16ms)** synchronization loop.
--   **🕹️ Analog-to-Digital Precision**: Intelligent thresholding converts smooth analog gestures (rotation/sliders) into crisp binary keyboard signals (`WASD`).
--   **🎛️ Dual-Core Architecture**:
-    -   **Mobile App**: A sleek Flutter interface utilizing high-fidelity haptic feedback and real-time sensor polling.
-    -   **Python Server**: A lightweight background service for cross-platform keyboard emulation.
--   **📊 Real-time Debug Overlay**: Live diagnostic monitor showing packet throughput, IP status, and raw data payloads.
--   **💓 Haptic Feedback Engine**: Implements physical tactile ticks when controls reach their maximum axes.
+- **⚡ Ultra-Low Latency**: Optimized UDP transport layer with a **60Hz (16ms)** synchronization loop for near-instant response.
+- **🎨 Dynamic Layout Editor**: Create, move, and resize every button. Build the perfect interface for your specific game.
+- **🌈 Advanced Theming**:
+    - **Intelligent Contrast**: Modifier keys automatically styled in Slate Gray (`#2A2A2A`) for better visual hierarchy.
+    - **Premium Presets**: Deep, dark-themed color swatches (Midnight Red, Forest Green, Deep Blue) to match modern gaming aesthetics.
+    - **Hex Precision**: Full control over key colors via a precise hex code editor.
+- **📂 Layout Management**:
+    - **Infinite Customization**: Save your creations as new templates with custom icons (emojis), titles, and descriptions.
+    - **Metadata System**: Real-time listing of custom layouts stored directly on your device.
+- **📡 Seamless Connectivity**:
+    - **Auto Search**: Instantly find your PC server on the local network.
+    - **Manual IP**: Quick-entry for specific network configurations.
+- **🕹️ Analog-to-Digital Precision**: Intelligent thresholding converts smooth gestures into crisp binary keyboard signals.
+
+---
+
+## 🎨 Interface Customization
+
+vGamepad isn't just a controller; it's a sandbox. 
+
+1. **Unlock the Grid**: Tap the lock icon to enter edit mode.
+2. **Transform Keys**: Resize or move keys with precision sliders.
+3. **Style your Way**: Use the color picker to assign presets or unique hex codes to any button.
+4. **Save with Style**: Save your layout with a signature emoji and title. Your custom layouts are neatly organized in the selection sheet.
 
 ---
 
 ## 🛠️ System Requirements
 
 ### Mobile (Client)
--   **Flutter SDK**: 3.x
--   **Connection**: 5GHz Wi-Fi recommended for minimum jitter.
+- **Platform**: Android / iOS
+- **Flutter SDK**: 3.x
+- **Connection**: 5GHz Wi-Fi or USB Tethering recommended for minimum jitter.
 
 ### PC (Server)
--   **Python**: 3.10+
--   **Architecture**: macOS (Tested) / Windows / Linux
--   **Permissions**: Accessibility permissions required for keyboard simulation (macOS).
+- **Python**: 3.10+
+- **Platform**: macOS (Verified) / Windows / Linux
+- **Permissions**: **Accessibility permissions** required for keyboard emulation.
 
 ---
 
@@ -47,46 +65,28 @@ python3 server.py
 ```
 
 ### 2. Client Configuration (Flutter)
-1.  **Find your PC's IP address**:
-    ```bash
-    # On macOS/Linux
-    ipconfig getifaddr en0
-    
-    # On Windows
-    ipconfig
-    ```
-2.  **Open `lib/main.dart`** and update the `pcIp` variable in the `UdpService` class:
-    ```dart
-    // line 16
-    final String pcIp = "YOUR_PC_IP_HERE"; 
-    ```
-3.  **Run the app**:
-    ```bash
-    flutter run --release
-    ```
+1. **Connect**: Launch the app and ensure your PC and mobile are on the same network.
+2. **Select Discovery**:
+    - Tap **AUTO SEARCH** to hunt for the server.
+    - Tap **MANUAL IP** if you already have the server's IP.
+3. **Enjoy**: Once connected, your inputs will be instantly synchronized to your PC.
 
 ---
 
 ## 📡 Communication Protocol
 
-The system communicates via a lightweight UDP string protocol sent every 16ms:
+The system communicates via a lightweight UDP string protocol sent every 16ms. This allows the server to emulate keyboard presses based on your layout's `action` assignments.
 
-| Segment | Range | Mapping |
-| :--- | :--- | :--- |
-| `axisX` | `-1.0` to `1.0` | Steering (Left: `A` / Right: `D`) |
-| `trigA` | `0.0` to `1.0` | Acceleration (Forward: `W`) |
-| `trigB` | `0.0` to `1.0` | Braking (Backward: `S`) |
-
-**Template**: `axisX:{val}|trigA:{val}|trigB:{val}`
+**Packet Structure**: `axisX:{val}|trigA:{val}|trigB:{val}|keys:[list_of_actions]`
 
 ---
 
 ## ⚠️ Troubleshooting
 
--   **Connection Failed**: Ensure your PC's firewall allows incoming traffic on **UDP Port 5005**.
--   **No Keyboard Input (macOS)**: You must grant **Accessibility** permissions to the Terminal application or IDE running the server.
-    -   Go to `System Settings > Privacy & Security > Accessibility`.
--   **Input Jitter**: Wi-Fi interference can cause packet loss. If possible, use **USB Tethering** for a wired connection experience.
+- **Server Not Found**: Ensure your PC's firewall allows incoming traffic on **UDP Port 5005**.
+- **No Keyboard Input (macOS)**: You must grant **Accessibility** permissions to the Terminal application or the Python process.
+    - `System Settings > Privacy & Security > Accessibility`.
+- **Input Jitter**: If possible, use **USB Tethering** for a wired connection experience.
 
 ---
 
