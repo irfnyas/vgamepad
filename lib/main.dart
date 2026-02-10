@@ -46,18 +46,34 @@ class _HomePageState extends State<HomePage> {
 
   // Layout Engine
   List<dynamic> _layout = [];
+  List<dynamic> _manifest = [];
+  String _activeLayout = 'keyboard.json';
 
   @override
   void initState() {
     super.initState();
+    _loadManifest();
     _loadLayout();
     _initUdp();
+  }
+
+  Future<void> _loadManifest() async {
+    try {
+      final String response = await rootBundle.loadString(
+        'assets/layout/_manifest.json',
+      );
+      setState(() {
+        _manifest = jsonDecode(response);
+      });
+    } catch (e) {
+      debugPrint("Error loading manifest: $e");
+    }
   }
 
   Future<void> _loadLayout() async {
     try {
       final String response = await rootBundle.loadString(
-        'assets/layout/keyboard.json',
+        'assets/layout/$_activeLayout',
       );
       setState(() {
         _layout = jsonDecode(response);
@@ -390,7 +406,7 @@ class _HomePageState extends State<HomePage> {
         icon: Icon(
           Icons.link_off,
           color: _isLocked
-              ? Colors.white10
+              ? Colors.white24
               : Colors.redAccent.withValues(alpha: 0.7),
           size: 22,
         ),
@@ -422,11 +438,21 @@ class _HomePageState extends State<HomePage> {
       actions: [
         IconButton(
           icon: Icon(
+            Icons.layers,
+            color: _isLocked ? Colors.white24 : Colors.cyanAccent,
+            size: 20,
+          ),
+          onPressed: _isLocked ? null : _showLayoutSheet,
+        ),
+        IconButton(
+          icon: Icon(
             _isLocked ? Icons.lock : Icons.lock_open,
             color: _isLocked ? Colors.cyanAccent : Colors.white24,
             size: 20,
           ),
-          onPressed: () => setState(() => _isLocked = !_isLocked),
+          onPressed: () => setState(() => _isLocked = true),
+          onLongPress: () => setState(() => _isLocked = !_isLocked),
+          tooltip: _isLocked ? "Long press to unlock" : "Press to lock",
         ),
         const SizedBox(width: 8),
       ],
@@ -530,6 +556,141 @@ class _HomePageState extends State<HomePage> {
         : const Color(0xFF1A1A1A);
   }
 
+  void _showLayoutSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF141414),
+      barrierColor: Colors.black54,
+      constraints: const BoxConstraints(maxWidth: 500),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          minChildSize: 0.4,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, scrollController) {
+            return ListView.builder(
+              controller: scrollController,
+              padding: EdgeInsets.only(
+                top: 24,
+                left: 16,
+                right: 16,
+                bottom: 24 + MediaQuery.of(context).padding.bottom,
+              ),
+              itemCount: _manifest.length + 1,
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 20),
+                        decoration: BoxDecoration(
+                          color: Colors.white10,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      const Text(
+                        "SELECT INTERFACE",
+                        style: TextStyle(
+                          color: Colors.white38,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 4,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                  );
+                }
+
+                final item = _manifest[index - 1];
+                final bool isLocked = item["isLocked"] ?? false;
+
+                if (isLocked) {
+                  return _buildLockedOption(
+                    item["title"],
+                    item["icon"],
+                    item["description"] ?? "",
+                  );
+                }
+
+                return _buildLayoutOption(
+                  item["title"],
+                  item["id"],
+                  item["icon"],
+                  item["description"] ?? "",
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildLayoutOption(
+    String title,
+    String fileName,
+    String icon,
+    String description,
+  ) {
+    final bool isSelected = _activeLayout == fileName;
+    return ListSelectionItem(
+      title: title,
+      icon: icon,
+      description: description,
+      isSelected: isSelected,
+      onTap: () {
+        setState(() {
+          _activeLayout = fileName;
+          _layout = [];
+        });
+        _loadLayout();
+        Navigator.pop(context);
+      },
+    );
+  }
+
+  Widget _buildLockedOption(String title, String icon, String description) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.02),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+      ),
+      child: ListTile(
+        leading: Text(
+          icon,
+          style: const TextStyle(fontSize: 24, color: Colors.white10),
+        ),
+        title: Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white10,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        subtitle: Text(
+          description,
+          style: const TextStyle(color: Colors.white10, fontSize: 11),
+        ),
+        trailing: const Icon(
+          Icons.lock_outline,
+          color: Colors.white10,
+          size: 18,
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _discoveryTimer?.cancel();
@@ -539,6 +700,61 @@ class _HomePageState extends State<HomePage> {
     _ipController.dispose();
     _udp.dispose();
     super.dispose();
+  }
+}
+
+class ListSelectionItem extends StatelessWidget {
+  final String title;
+  final String icon;
+  final String description;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const ListSelectionItem({
+    super.key,
+    required this.title,
+    required this.icon,
+    required this.description,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: isSelected
+            ? Colors.cyanAccent.withValues(alpha: 0.1)
+            : Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isSelected ? Colors.cyanAccent : Colors.transparent,
+          width: 1.5,
+        ),
+      ),
+      child: ListTile(
+        onTap: onTap,
+        leading: Text(icon, style: const TextStyle(fontSize: 24)),
+        title: Text(
+          title,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.white70,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+        subtitle: Text(
+          description,
+          style: TextStyle(
+            color: isSelected ? Colors.white38 : Colors.white24,
+            fontSize: 11,
+          ),
+        ),
+        trailing: isSelected
+            ? const Icon(Icons.check_circle, color: Colors.cyanAccent, size: 18)
+            : null,
+      ),
+    );
   }
 }
 

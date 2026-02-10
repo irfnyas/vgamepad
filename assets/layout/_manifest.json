@@ -1,0 +1,23 @@
+[
+    {
+        "id": "keyboard.json",
+        "title": "Keyboard",
+        "icon": "⌨️",
+        "description": "Full QWERTY desktop layout",
+        "isLocked": false
+    },
+    {
+        "id": "nes.json",
+        "title": "NES",
+        "icon": "🎮",
+        "description": "Classic 8-bit gaming experience",
+        "isLocked": false
+    },
+    {
+        "id": "ps5.json",
+        "title": "PS5",
+        "icon": "🕹️",
+        "description": "Dualsense style layout",
+        "isLocked": true
+    }
+]
