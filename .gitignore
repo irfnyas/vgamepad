@@ -43,3 +43,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Others
+/bridge/build
+/bridge/.venv
+/bridge/__pycache__

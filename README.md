@@ -54,15 +54,44 @@ vGamepad isn't just a controller; it's a sandbox.
 ## 📦 Installation & Setup
 
 ### 1. Server Configuration (PC/Mac)
-Install the required dependency for keyboard emulation:
-```bash
-pip3 install pynput
-```
 
-Run the server script:
-```bash
-python3 server.py
-```
+#### Option A: Desktop App (GUI)
+This provides a premium GUI with automatic IP detection, status monitoring, and easy port configuration.
+1. Install dependencies:
+   ```bash
+   pip3 install -r bridge/requirements.txt
+   ```
+2. Run the desktop app:
+   ```bash
+   python3 bridge/main.py
+   ```
+
+#### Option B: Terminal Only (CLI)
+Run the lightweight server without a GUI.
+1. Install dependencies:
+   ```bash
+   pip3 install pynput
+   ```
+2. Run the server:
+   ```bash
+   python3 bridge/server.py
+   ```
+   *(Optional: specify a different port)*
+   ```bash
+   python3 bridge/server.py --port 5005
+   ```
+
+#### Option C: Build Standalone App
+To create a standalone `.app` (macOS) or `.exe` (Windows):
+1. Navigate to the server directory:
+   ```bash
+   cd bridge
+   ```
+2. Build with Flet:
+   ```bash
+   flet build macos  # or 'windows'
+   ```
+The resulting app will be in the `build/` folder.
 
 ### 2. Client Configuration (Flutter)
 1. **Connect**: Launch the app and ensure your PC and mobile are on the same network.
