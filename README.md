@@ -120,4 +120,4 @@ The system communicates via a lightweight UDP string protocol sent every 16ms. T
 ---
 
 ## 📜 License
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the APACHE License - see the LICENSE file for details.
