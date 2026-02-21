@@ -1,0 +1,29 @@
+[
+    {
+        "action": "mouse_cursor",
+        "label": "Cursor",
+        "x1": 20,
+        "y1": 15,
+        "x2": 80,
+        "y2": 85,
+        "color": null
+    },
+    {
+        "action": "mouse_left",
+        "label": "L",
+        "x1": 110,
+        "y1": 40,
+        "x2": 145,
+        "y2": 75,
+        "color": "#311B1B"
+    },
+    {
+        "action": "mouse_right",
+        "label": "R",
+        "x1": 155,
+        "y1": 40,
+        "x2": 190,
+        "y2": 75,
+        "color": "#311B1B"
+    }
+]

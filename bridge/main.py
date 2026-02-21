@@ -9,7 +9,7 @@ from server import VMCServer, get_local_ip, UDP_PORT
 def main(page: ft.Page):
     page.title = "vGamepad Bridge"
     page.window.width = 450
-    page.window.height = 800
+    page.window.height = 600
     page.window.resizable = True
     page.bgcolor = "#0F111A"
     page.padding = 20

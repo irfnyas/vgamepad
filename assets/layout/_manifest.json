@@ -14,6 +14,13 @@
         "isLocked": false
     },
     {
+        "id": "atari7800.json",
+        "title": "Atari 7800",
+        "icon": "🕹️",
+        "description": "Retro joystick with mouse simulation",
+        "isLocked": false
+    },
+    {
         "id": "xbox.json",
         "title": "Xbox",
         "icon": "🎮",

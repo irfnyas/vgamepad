@@ -89,8 +89,13 @@ class _HomePageState extends State<HomePage> {
       );
       final List<dynamic> data = jsonDecode(response);
       setState(() {
-        _availableActions =
-            data.map((e) => e['action'].toString()).toSet().toList()..sort();
+        _availableActions = [
+          ...data.map((e) => e['action'].toString()).toSet(),
+          'mouse_left',
+          'mouse_middle',
+          'mouse_right',
+          'mouse_cursor',
+        ].toList()..sort();
       });
     } catch (e) {
       debugPrint("Error loading available actions: $e");
@@ -955,8 +960,14 @@ class _HomePageState extends State<HomePage> {
             color: Colors.cyanAccent,
             size: 20,
           ),
-          onPressed: () => setState(() => _isLocked = true),
-          onLongPress: () => setState(() => _isLocked = !_isLocked),
+          onPressed: () => setState(() {
+            _isLocked = true;
+            _selectedKeyIndex = null;
+          }),
+          onLongPress: () => setState(() {
+            _isLocked = !_isLocked;
+            if (_isLocked) _selectedKeyIndex = null;
+          }),
           tooltip: _isLocked ? "Long press to unlock" : "Press to lock",
         ),
         const SizedBox(width: 8),
@@ -1133,6 +1144,16 @@ class _HomePageState extends State<HomePage> {
       }
     }
 
+    if (k["action"] == "mouse_cursor") {
+      return MouseWidget(
+        k: k,
+        isLocked: _isLocked,
+        onSend: (msg) {
+          if (_isLocked) _udp.send(msg);
+        },
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.all(1.0),
       child: Material(
@@ -1150,6 +1171,12 @@ class _HomePageState extends State<HomePage> {
           ),
           child: InkWell(
             borderRadius: BorderRadius.circular(3),
+            onDoubleTap: _isLocked && action.contains('mouse_')
+                ? () {
+                    HapticFeedback.vibrate();
+                    _udp.send("${action.toLowerCase()}:double");
+                  }
+                : null,
             onTap: !_isLocked && _selectedKeyIndex == null
                 ? () => _showEditDialog(k)
                 : null,
@@ -1970,5 +1997,139 @@ class UdpService {
     _socket?.close();
     _socket = null;
     _dataStreamController.close();
+  }
+}
+
+class MouseWidget extends StatefulWidget {
+  final Map<String, dynamic> k;
+  final bool isLocked;
+  final Function(String) onSend;
+
+  const MouseWidget({
+    super.key,
+    required this.k,
+    required this.isLocked,
+    required this.onSend,
+  });
+
+  @override
+  State<MouseWidget> createState() => _MouseWidgetState();
+}
+
+class _MouseWidgetState extends State<MouseWidget> {
+  Offset _knobOffset = Offset.zero;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double radius =
+            math.min(constraints.maxWidth, constraints.maxHeight) / 2;
+
+        return GestureDetector(
+          onPanUpdate: widget.isLocked
+              ? (details) {
+                  setState(() {
+                    final RenderBox box =
+                        context.findRenderObject() as RenderBox;
+                    final Offset localPos = box.globalToLocal(
+                      details.globalPosition,
+                    );
+                    final Offset center = Offset(
+                      constraints.maxWidth / 2,
+                      constraints.maxHeight / 2,
+                    );
+
+                    Offset deltaFromCenter = localPos - center;
+                    // Normalize and clamp to circle for visual knob
+                    double dist = deltaFromCenter.distance;
+                    if (dist > radius) {
+                      deltaFromCenter = Offset.fromDirection(
+                        deltaFromCenter.direction,
+                        radius,
+                      );
+                    }
+                    _knobOffset = Offset(
+                      deltaFromCenter.dx / radius,
+                      deltaFromCenter.dy / radius,
+                    );
+                  });
+
+                  // Send actual touch delta for trackpad behavior
+                  final double dx = details.delta.dx;
+                  final double dy = details.delta.dy;
+                  if (dx != 0 || dy != 0) {
+                    widget.onSend("${widget.k["action"]}:$dx:$dy");
+                  }
+                }
+              : null,
+          onPanEnd: widget.isLocked
+              ? (_) {
+                  setState(() {
+                    _knobOffset = Offset.zero;
+                  });
+                }
+              : null,
+          onPanCancel: widget.isLocked
+              ? () {
+                  setState(() {
+                    _knobOffset = Offset.zero;
+                  });
+                }
+              : null,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.05),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: widget.isLocked
+                    ? Colors.white10
+                    : Colors.cyanAccent.withValues(alpha: 0.3),
+                width: 2,
+              ),
+            ),
+            child: Stack(
+              children: [
+                Center(
+                  child: Opacity(
+                    opacity: 0.2,
+                    child: Text(
+                      widget.k["label"] ?? "MOUSE",
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                Center(
+                  child: Transform.translate(
+                    offset: _knobOffset * (radius * 0.8),
+                    child: Container(
+                      width: radius * 0.6,
+                      height: radius * 0.6,
+                      decoration: BoxDecoration(
+                        color: Colors.cyanAccent.withValues(alpha: 0.7),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.cyanAccent.withValues(alpha: 0.3),
+                            blurRadius: 10,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: const Center(
+                        child: Icon(Icons.mouse, color: Colors.black, size: 16),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 }
